@@ -79,10 +79,11 @@ if (!$data) {
     exit;
 }
 
-/* Hide developer/website fields from API response */
+/* Hide developer/website/channel fields from API response */
 $hideFields = [
     'developer', 'Developer', 'DEVELOPER',
-    'website', 'Website', 'WEBSITE'
+    'website', 'Website', 'WEBSITE',
+    'channel', 'Channel', 'CHANNEL'
 ];
 
 foreach ($hideFields as $field) {
