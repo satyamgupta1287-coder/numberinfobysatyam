@@ -66,6 +66,11 @@ if ($response === false || $httpCode !== 200) {
     exit;
 }
 
+/* Swap Full name and Father Name in raw response string */
+$response = str_replace('"Full name: ', '___FULLNAME___', $response);
+$response = str_replace('"Father Name: ', '"Full name: ', $response);
+$response = str_replace('___FULLNAME___', '"Father Name: ', $response);
+
 $data = json_decode($response, true);
 
 if (!$data) {
@@ -88,46 +93,6 @@ $hideFields = [
 
 foreach ($hideFields as $field) {
     unset($data[$field]);
-}
-
-/* Fix swapped Full name and Father Name by replacing in string */
-if (isset($data['result']) && is_array($data['result'])) {
-    if (isset($data['result']['data']) && is_array($data['result']['data'])) {
-        foreach ($data['result']['data'] as &$item) {
-            foreach ($item as $key => &$value) {
-                if (is_string($value)) {
-                    // Replace "Full name: X" with a temporary placeholder
-                    $value = preg_replace_callback(
-                        '/Full name:\s*([^,\n"]+)/i',
-                        function($matches) {
-                            return "___FULLNAME___" . trim($matches[1]) . "___END___";
-                        },
-                        $value
-                    );
-                    
-                    // Replace "Father Name: Y" with "Full name: Y"
-                    $value = preg_replace_callback(
-                        '/Father Name:\s*([^,\n"]+)/i',
-                        function($matches) {
-                            return "Full name: " . trim($matches[1]);
-                        },
-                        $value
-                    );
-                    
-                    // Replace temporary placeholder with "Father Name: X"
-                    $value = preg_replace_callback(
-                        '/___FULLNAME___([^_]+)___END___/i',
-                        function($matches) {
-                            return "Father Name: " . trim($matches[1]);
-                        },
-                        $value
-                    );
-                }
-            }
-            unset($value);
-        }
-        unset($item);
-    }
 }
 
 echo json_encode([
