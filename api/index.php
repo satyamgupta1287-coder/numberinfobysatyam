@@ -90,27 +90,38 @@ foreach ($hideFields as $field) {
     unset($data[$field]);
 }
 
-/* Fix swapped Full name and Father Name in string values */
+/* Fix swapped Full name and Father Name by replacing in string */
 if (isset($data['result']) && is_array($data['result'])) {
     if (isset($data['result']['data']) && is_array($data['result']['data'])) {
         foreach ($data['result']['data'] as &$item) {
             foreach ($item as $key => &$value) {
                 if (is_string($value)) {
-                    // Swap "Full name: X" with "Father Name: Y"
-                    if (strpos($value, 'Full name:') !== false && strpos($value, 'Father Name:') !== false) {
-                        // Extract values
-                        preg_match('/Full name:\s*([^,]+)/', $value, $fullNameMatch);
-                        preg_match('/Father Name:\s*([^,]+)/', $value, $fatherNameMatch);
-                        
-                        if (!empty($fullNameMatch[1]) && !empty($fatherNameMatch[1])) {
-                            $fullNameValue = trim($fullNameMatch[1]);
-                            $fatherNameValue = trim($fatherNameMatch[1]);
-                            
-                            // Swap them
-                            $value = str_replace('Full name: ' . $fullNameValue, 'Full name: ' . $fatherNameValue, $value);
-                            $value = str_replace('Father Name: ' . $fatherNameValue, 'Father Name: ' . $fullNameValue, $value);
-                        }
-                    }
+                    // Replace "Full name: X" with a temporary placeholder
+                    $value = preg_replace_callback(
+                        '/Full name:\s*([^,\n"]+)/i',
+                        function($matches) {
+                            return "___FULLNAME___" . trim($matches[1]) . "___END___";
+                        },
+                        $value
+                    );
+                    
+                    // Replace "Father Name: Y" with "Full name: Y"
+                    $value = preg_replace_callback(
+                        '/Father Name:\s*([^,\n"]+)/i',
+                        function($matches) {
+                            return "Full name: " . trim($matches[1]);
+                        },
+                        $value
+                    );
+                    
+                    // Replace temporary placeholder with "Father Name: X"
+                    $value = preg_replace_callback(
+                        '/___FULLNAME___([^_]+)___END___/i',
+                        function($matches) {
+                            return "Father Name: " . trim($matches[1]);
+                        },
+                        $value
+                    );
                 }
             }
             unset($value);
