@@ -90,15 +90,17 @@ foreach ($hideFields as $field) {
     unset($data[$field]);
 }
 
-/* Fix swapped Full name and Father Name fields */
+/* Fix swapped Full name and Father Name fields by renaming */
 if (isset($data['result']) && is_array($data['result'])) {
     if (isset($data['result']['data']) && is_array($data['result']['data'])) {
         foreach ($data['result']['data'] as &$item) {
             if (isset($item['Full name']) && isset($item['Father Name'])) {
-                // Swap the values
-                $temp = $item['Full name'];
-                $item['Full name'] = $item['Father Name'];
-                $item['Father Name'] = $temp;
+                // Rename Full name to temp, Father Name to Full name, temp to Father Name
+                $fullNameValue = $item['Full name'];
+                $fatherNameValue = $item['Father Name'];
+                
+                $item['Full name'] = $fatherNameValue;
+                $item['Father Name'] = $fullNameValue;
             }
         }
         unset($item);
