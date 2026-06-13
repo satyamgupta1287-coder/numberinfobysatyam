@@ -90,6 +90,19 @@ foreach ($hideFields as $field) {
     unset($data[$field]);
 }
 
+/* Fix swapped Full name and Father Name fields */
+if (isset($data['data']) && is_array($data['data'])) {
+    foreach ($data['data'] as &$item) {
+        if (isset($item['Full name']) && isset($item['Father Name'])) {
+            // Swap the values
+            $temp = $item['Full name'];
+            $item['Full name'] = $item['Father Name'];
+            $item['Father Name'] = $temp;
+        }
+    }
+    unset($item);
+}
+
 echo json_encode([
     "success" => true,
     "developer" => "Satyam Gupta",
