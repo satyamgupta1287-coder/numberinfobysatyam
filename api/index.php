@@ -90,18 +90,30 @@ foreach ($hideFields as $field) {
     unset($data[$field]);
 }
 
-/* Fix swapped Full name and Father Name fields by renaming */
+/* Fix swapped Full name and Father Name in string values */
 if (isset($data['result']) && is_array($data['result'])) {
     if (isset($data['result']['data']) && is_array($data['result']['data'])) {
         foreach ($data['result']['data'] as &$item) {
-            if (isset($item['Full name']) && isset($item['Father Name'])) {
-                // Rename Full name to temp, Father Name to Full name, temp to Father Name
-                $fullNameValue = $item['Full name'];
-                $fatherNameValue = $item['Father Name'];
-                
-                $item['Full name'] = $fatherNameValue;
-                $item['Father Name'] = $fullNameValue;
+            foreach ($item as $key => &$value) {
+                if (is_string($value)) {
+                    // Swap "Full name: X" with "Father Name: Y"
+                    if (strpos($value, 'Full name:') !== false && strpos($value, 'Father Name:') !== false) {
+                        // Extract values
+                        preg_match('/Full name:\s*([^,]+)/', $value, $fullNameMatch);
+                        preg_match('/Father Name:\s*([^,]+)/', $value, $fatherNameMatch);
+                        
+                        if (!empty($fullNameMatch[1]) && !empty($fatherNameMatch[1])) {
+                            $fullNameValue = trim($fullNameMatch[1]);
+                            $fatherNameValue = trim($fatherNameMatch[1]);
+                            
+                            // Swap them
+                            $value = str_replace('Full name: ' . $fullNameValue, 'Full name: ' . $fatherNameValue, $value);
+                            $value = str_replace('Father Name: ' . $fatherNameValue, 'Father Name: ' . $fullNameValue, $value);
+                        }
+                    }
+                }
             }
+            unset($value);
         }
         unset($item);
     }
