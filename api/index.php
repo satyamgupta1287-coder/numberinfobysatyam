@@ -29,7 +29,7 @@ if (empty($number)) {
         "example" => "?apikey=satyamgupta&number=8651369226",
         "developer" => "https://t.me/satyamgupta9999",
         "credit" => "https://t.me/osintsatyam",
-        "private" => "https://t.me/osintbysatyam
+        "private" => "https://t.me/osintbysatyam"
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     exit;
 }
@@ -93,7 +93,7 @@ echo json_encode([
     "success" => true,
     "developer" => "Satyam Gupta",
     "credit" => "https://t.me/osintbysatyam",
-    "private" => "https://t.me/+14rDlunTEzwwZGY1"
+    "private" => "https://t.me/+14rDlunTEzwwZGY1",
     "result" => $data
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
 ?>
