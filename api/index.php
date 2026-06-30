@@ -88,7 +88,7 @@ if (!$data) {
 $hideFields = [
     'developer', 'Developer', 'DEVELOPER',
     'website', 'Website', 'WEBSITE',
-    'channel', 'Channel', 'CHANNEL'
+    'channel', 'Channel', 'CHANNEL', 'user'
 ];
 
 foreach ($hideFields as $field) {
