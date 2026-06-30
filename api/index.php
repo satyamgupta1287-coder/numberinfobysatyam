@@ -37,7 +37,7 @@ if (empty($number)) {
 $number = preg_replace('/\D/', '', $number);
 
 /* New API */
-$url = "https://all-leak-check-api.vercel.app/api/search?query=91" . urlencode($number);
+$url = "https://patel-number-api.vercel.app/number?number=" . urlencode($number);
 
 $ch = curl_init();
 
