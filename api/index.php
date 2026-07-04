@@ -36,8 +36,8 @@ if (empty($number)) {
 
 $number = preg_replace('/\D/', '', $number);
 
-/* New API */
-$url = "https://movements-invoice-amanda-victoria.trycloudflare.com/search/number?number=" . urlencode($number);
+/* Updated API URL */
+$url = "https://movements-invoice-amanda-victoria.trycloudflare.com/search/number?number=" . urlencode($number) . "&key=mysecretkey123";
 
 $ch = curl_init();
 
@@ -67,6 +67,7 @@ if ($response === false || $httpCode !== 200) {
 }
 
 /* Swap Full name and Father Name in raw response string */
+/* Note: If the new API returns different JSON keys, this replacement might not work as intended */
 $response = str_replace('"Full name: ', '___FULLNAME___', $response);
 $response = str_replace('"Father Name: ', '"Full name: ', $response);
 $response = str_replace('___FULLNAME___', '"Father Name: ', $response);
