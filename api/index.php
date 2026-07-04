@@ -5,10 +5,12 @@ ini_set('display_errors', 0);
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 
+// Yahan aapne apni API key 'satyam' set ki hai
 define('API_KEY', 'satyam');
 
 $apikey = $_GET['apikey'] ?? '';
 
+// Agar URL me '?apikey=satyam' nahi hoga, toh ye error aayega
 if ($apikey !== API_KEY) {
     echo json_encode([
         "success" => false,
@@ -26,7 +28,7 @@ if (empty($number)) {
     echo json_encode([
         "success" => false,
         "message" => "Please provide number",
-        "example" => "?apikey=satyamgupta&number=8651369226",
+        "example" => "?apikey=satyam&number=9570187989",
         "developer" => "https://t.me/satyamgupta9999",
         "credit" => "https://t.me/osintsatyam",
         "private" => "https://t.me/osintbysatyam"
@@ -36,7 +38,7 @@ if (empty($number)) {
 
 $number = preg_replace('/\D/', '', $number);
 
-/* Updated API URL */
+/* New Cloudflare API */
 $url = "https://movements-invoice-amanda-victoria.trycloudflare.com/search/number?number=" . urlencode($number) . "&key=mysecretkey123";
 
 $ch = curl_init();
@@ -66,12 +68,7 @@ if ($response === false || $httpCode !== 200) {
     exit;
 }
 
-/* Swap Full name and Father Name in raw response string */
-/* Note: If the new API returns different JSON keys, this replacement might not work as intended */
-$response = str_replace('"Full name: ', '___FULLNAME___', $response);
-$response = str_replace('"Father Name: ', '"Full name: ', $response);
-$response = str_replace('___FULLNAME___', '"Father Name: ', $response);
-
+// JSON ko decode karte hain
 $data = json_decode($response, true);
 
 if (!$data) {
@@ -85,22 +82,15 @@ if (!$data) {
     exit;
 }
 
-/* Hide developer/website/channel fields from API response */
-$hideFields = [
-    'developer', 'Developer', 'DEVELOPER',
-    'website', 'Website', 'WEBSITE',
-    'channel', 'Channel', 'CHANNEL', 'user'
-];
-
-foreach ($hideFields as $field) {
-    unset($data[$field]);
-}
+// Screenshot "60013.jpg" ke hisaab se Cloudflare API 'result' key ke andar array bhej rahi hai. 
+// Us 'result' ko bahar nikalte hain taaki output clean rahe.
+$finalResult = isset($data['result']) ? $data['result'] : $data;
 
 echo json_encode([
     "success" => true,
     "developer" => "Satyam Gupta",
     "credit" => "https://t.me/osintbysatyam",
     "private" => "https://t.me/+14rDlunTEzwwZGY1",
-    "result" => $data
+    "result" => $finalResult
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
 ?>
