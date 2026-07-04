@@ -37,7 +37,7 @@ if (empty($number)) {
 $number = preg_replace('/\D/', '', $number);
 
 /* New API */
-$url = "https://patel-number-api.vercel.app/number?number=" . urlencode($number);
+$url = "https://movements-invoice-amanda-victoria.trycloudflare.com/search/number?number=" . urlencode($number);
 
 $ch = curl_init();
 
