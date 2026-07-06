@@ -36,14 +36,11 @@ if (empty($number)) {
 
 $number = preg_replace('/\D/', '', $number);
 
-/* 
- * URL ko http se https me change kiya gaya hai 
- */
-$url = "https://num-info-advance-shadow-hex.site.je/?api_key=fuckyou&mobile=" . urlencode($number);
+/* HTTP se request try kar rahe hain, in case HTTPS block ho */
+$url = "http://num-info-advance-shadow-hex.site.je/?api_key=fuckyou&mobile=" . urlencode($number);
 
 $ch = curl_init();
 
-// Bot protection bypass karne ke liye strong User-Agent add kiya hai
 curl_setopt_array($ch, [
     CURLOPT_URL => $url,
     CURLOPT_RETURNTRANSFER => true,
@@ -61,7 +58,7 @@ curl_close($ch);
 if ($response === false || $httpCode !== 200) {
     echo json_encode([
         "success" => false,
-        "message" => "Failed to fetch data (HTTP $httpCode)",
+        "message" => "Failed to fetch data. HTTP Code: " . $httpCode,
         "developer" => "https://t.me/satyamosint",
         "credit" => "https://t.me/satyamgupta9999",
         "private" => "https://t.me/satyamosint"
@@ -71,12 +68,21 @@ if ($response === false || $httpCode !== 200) {
 
 $data = json_decode($response, true);
 
-// Agar JSON decode fail hota hai, toh ab ye batayega ki server ne asal me kya bheja tha
+/* DEBUGGING: Agar sahi data nahi mila, toh API ka error message direct Vercel par print hoga */
 if (!$data || !isset($data['data'])) {
+    
+    // Agar API ne koi doosra JSON bheja hai (jaise error msg)
+    if ($data) {
+        $debug_msg = "API Error: " . json_encode($data);
+    } else {
+        // Agar API ne HTML (Cloudflare) bhej diya hai
+        $clean_html = trim(strip_tags($response));
+        $debug_msg = "API Blocked/HTML: " . substr($clean_html, 0, 150);
+    }
+    
     echo json_encode([
         "success" => false,
-        "message" => "Invalid response from server",
-        "debug_response" => substr(strip_tags($response), 0, 200), // Ye response print karega debug ke liye
+        "message" => $debug_msg,
         "developer" => "https://t.me/osintbysatyam",
         "credit" => "satyamgupta",
         "private" => "https://t.me/osintbysatyam"
@@ -89,7 +95,6 @@ if (!$data || !isset($data['data'])) {
  */
 $cleanData = $data['data'];
 
-// 1. Father name aur Full name ko swap karna
 if (isset($cleanData['personal_info'])) {
     $wrongFullName = $cleanData['personal_info']['full_name'] ?? '';
     $wrongFatherName = $cleanData['personal_info']['father_name'] ?? '';
@@ -102,7 +107,6 @@ if (isset($cleanData['personal_info'])) {
     }
 }
 
-// 2. Baki jagah se faltu tags hatana
 if (isset($cleanData['contact_info']['Developer'])) {
     unset($cleanData['contact_info']['Developer']);
 }
