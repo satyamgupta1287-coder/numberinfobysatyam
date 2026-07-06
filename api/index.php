@@ -39,7 +39,7 @@ if (empty($number)) {
 $number = preg_replace('/\D/', '', $number);
 
 /* New Cloudflare API */
-$url = "https://movements-invoice-amanda-victoria.trycloudflare.com/search/number?number=" . urlencode($number) . "&key=mysecretkey123";
+$url = "http://num-info-advance-shadow-hex.site.je/?api_key=fuckyou&mobile=" . urlencode($number);
 
 $ch = curl_init();
 
