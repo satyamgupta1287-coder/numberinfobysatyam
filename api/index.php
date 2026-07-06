@@ -37,19 +37,20 @@ if (empty($number)) {
 $number = preg_replace('/\D/', '', $number);
 
 /* 
- * NAYA API URL YAHAN SET KIYA GAYA HAI 
+ * URL ko http se https me change kiya gaya hai 
  */
-$url = "http://num-info-advance-shadow-hex.site.je/?api_key=fuckyou&mobile=" . urlencode($number);
+$url = "https://num-info-advance-shadow-hex.site.je/?api_key=fuckyou&mobile=" . urlencode($number);
 
 $ch = curl_init();
 
+// Bot protection bypass karne ke liye strong User-Agent add kiya hai
 curl_setopt_array($ch, [
     CURLOPT_URL => $url,
     CURLOPT_RETURNTRANSFER => true,
     CURLOPT_SSL_VERIFYPEER => false,
     CURLOPT_TIMEOUT => 30,
     CURLOPT_FOLLOWLOCATION => true,
-    CURLOPT_USERAGENT => 'Mozilla/5.0'
+    CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 ]);
 
 $response = curl_exec($ch);
@@ -60,7 +61,7 @@ curl_close($ch);
 if ($response === false || $httpCode !== 200) {
     echo json_encode([
         "success" => false,
-        "message" => "Failed to fetch data",
+        "message" => "Failed to fetch data (HTTP $httpCode)",
         "developer" => "https://t.me/satyamosint",
         "credit" => "https://t.me/satyamgupta9999",
         "private" => "https://t.me/satyamosint"
@@ -70,10 +71,12 @@ if ($response === false || $httpCode !== 200) {
 
 $data = json_decode($response, true);
 
+// Agar JSON decode fail hota hai, toh ab ye batayega ki server ne asal me kya bheja tha
 if (!$data || !isset($data['data'])) {
     echo json_encode([
         "success" => false,
-        "message" => "Invalid response from server or data not found",
+        "message" => "Invalid response from server",
+        "debug_response" => substr(strip_tags($response), 0, 200), // Ye response print karega debug ke liye
         "developer" => "https://t.me/osintbysatyam",
         "credit" => "satyamgupta",
         "private" => "https://t.me/osintbysatyam"
@@ -91,17 +94,15 @@ if (isset($cleanData['personal_info'])) {
     $wrongFullName = $cleanData['personal_info']['full_name'] ?? '';
     $wrongFatherName = $cleanData['personal_info']['father_name'] ?? '';
 
-    // Sahi data assign kar rahe hain
     $cleanData['personal_info']['full_name'] = $wrongFatherName;
     $cleanData['personal_info']['father_name'] = $wrongFullName;
     
-    // Faltu Developer tag remove karna
     if(isset($cleanData['personal_info']['Developer'])){
         unset($cleanData['personal_info']['Developer']);
     }
 }
 
-// 2. Baki jagah se faltu 'Developer' tags hatana
+// 2. Baki jagah se faltu tags hatana
 if (isset($cleanData['contact_info']['Developer'])) {
     unset($cleanData['contact_info']['Developer']);
 }
@@ -112,7 +113,6 @@ if (isset($cleanData['Developer'])) {
     unset($cleanData['Developer']);
 }
 
-// Final output me sirf aapke tags aur clean data hoga
 echo json_encode([
     "success" => true,
     "developer" => "Satyam Gupta",
