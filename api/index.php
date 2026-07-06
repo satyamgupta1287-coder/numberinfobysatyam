@@ -5,12 +5,10 @@ ini_set('display_errors', 0);
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 
-// Yahan aapne apni API key 'satyam' set ki hai
 define('API_KEY', 'satyam');
 
 $apikey = $_GET['apikey'] ?? '';
 
-// Agar URL me '?apikey=satyam' nahi hoga, toh ye error aayega
 if ($apikey !== API_KEY) {
     echo json_encode([
         "success" => false,
@@ -38,7 +36,9 @@ if (empty($number)) {
 
 $number = preg_replace('/\D/', '', $number);
 
-/* New Cloudflare API */
+/* 
+ * NAYA API URL YAHAN SET KIYA GAYA HAI 
+ */
 $url = "http://num-info-advance-shadow-hex.site.je/?api_key=fuckyou&mobile=" . urlencode($number);
 
 $ch = curl_init();
@@ -68,13 +68,12 @@ if ($response === false || $httpCode !== 200) {
     exit;
 }
 
-// JSON ko decode karte hain
 $data = json_decode($response, true);
 
-if (!$data) {
+if (!$data || !isset($data['data'])) {
     echo json_encode([
         "success" => false,
-        "message" => "Invalid response from server",
+        "message" => "Invalid response from server or data not found",
         "developer" => "https://t.me/osintbysatyam",
         "credit" => "satyamgupta",
         "private" => "https://t.me/osintbysatyam"
@@ -82,15 +81,43 @@ if (!$data) {
     exit;
 }
 
-// Screenshot "60013.jpg" ke hisaab se Cloudflare API 'result' key ke andar array bhej rahi hai. 
-// Us 'result' ko bahar nikalte hain taaki output clean rahe.
-$finalResult = isset($data['result']) ? $data['result'] : $data;
+/* 
+ * DATA CLEANUP & SWAPPING LOGIC
+ */
+$cleanData = $data['data'];
 
+// 1. Father name aur Full name ko swap karna
+if (isset($cleanData['personal_info'])) {
+    $wrongFullName = $cleanData['personal_info']['full_name'] ?? '';
+    $wrongFatherName = $cleanData['personal_info']['father_name'] ?? '';
+
+    // Sahi data assign kar rahe hain
+    $cleanData['personal_info']['full_name'] = $wrongFatherName;
+    $cleanData['personal_info']['father_name'] = $wrongFullName;
+    
+    // Faltu Developer tag remove karna
+    if(isset($cleanData['personal_info']['Developer'])){
+        unset($cleanData['personal_info']['Developer']);
+    }
+}
+
+// 2. Baki jagah se faltu 'Developer' tags hatana
+if (isset($cleanData['contact_info']['Developer'])) {
+    unset($cleanData['contact_info']['Developer']);
+}
+if (isset($cleanData['other_info']['Developer'])) {
+    unset($cleanData['other_info']['Developer']);
+}
+if (isset($cleanData['Developer'])) {
+    unset($cleanData['Developer']);
+}
+
+// Final output me sirf aapke tags aur clean data hoga
 echo json_encode([
     "success" => true,
     "developer" => "Satyam Gupta",
     "credit" => "https://t.me/osintbysatyam",
     "private" => "https://t.me/+14rDlunTEzwwZGY1",
-    "result" => $finalResult
+    "result" => $cleanData
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
 ?>
