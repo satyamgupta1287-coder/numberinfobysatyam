@@ -6,7 +6,7 @@ header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 
 // Yahan aapne apni API key 'satyam' set ki hai
-define('API_KEY', 'satyam');
+define('API_KEY', 'satyamm');
 
 $apikey = $_GET['apikey'] ?? '';
 
