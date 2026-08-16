@@ -5,19 +5,15 @@ ini_set('display_errors', 0);
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 
-// Yahan aapne apni API key 'satyam' set ki hai
 define('API_KEY', 'satyamm');
 
 $apikey = $_GET['apikey'] ?? '';
 
-// Agar URL me '?apikey=satyam' nahi hoga, toh ye error aayega
 if ($apikey !== API_KEY) {
     echo json_encode([
         "success" => false,
         "message" => "Invalid API Key",
-        "developer" => "https://t.me/satyamgupta9999",
-        "credit" => "https://t.me/satyamgupta9999",
-        "private" => "https://t.me/osintbysatyam"
+        "developer" => "Satyam Gupta"
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     exit;
 }
@@ -28,69 +24,84 @@ if (empty($number)) {
     echo json_encode([
         "success" => false,
         "message" => "Please provide number",
-        "example" => "?apikey=satyam&number=9570187989",
-        "developer" => "https://t.me/satyamgupta9999",
-        "credit" => "https://t.me/osintsatyam",
-        "private" => "https://t.me/osintbysatyam"
+        "example" => "?apikey=satyamm&number=9570187989"
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     exit;
 }
 
 $number = preg_replace('/\D/', '', $number);
 
-/* New Cloudflare API */
-$url = "https://exploitsindia.site/osintcallerbot/number.php?exploits=" . urlencode($number) . "&key=mysecretkey123";
+/*
+ * Working upstream URL
+ * NOTE: yahan extra &key=... nahi lagaya gaya hai
+ */
+$url = "https://exploitsindia.site/osintcallerbot/number.php?exploits=" . urlencode($number);
 
 $ch = curl_init();
 
 curl_setopt_array($ch, [
     CURLOPT_URL => $url,
     CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_SSL_VERIFYPEER => false,
-    CURLOPT_TIMEOUT => 30,
     CURLOPT_FOLLOWLOCATION => true,
-    CURLOPT_USERAGENT => 'Mozilla/5.0'
+    CURLOPT_TIMEOUT => 30,
+    CURLOPT_CONNECTTIMEOUT => 10,
+    CURLOPT_USERAGENT => 'Mozilla/5.0',
+    CURLOPT_HTTPHEADER => [
+        'Accept: */*'
+    ]
 ]);
 
 $response = curl_exec($ch);
 $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+$contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+$curlError = curl_error($ch);
 
 curl_close($ch);
 
-if ($response === false || $httpCode !== 200) {
+if ($response === false) {
     echo json_encode([
         "success" => false,
-        "message" => "Failed to fetch data",
-        "developer" => "https://t.me/satyamosint",
-        "credit" => "https://t.me/satyamgupta9999",
-        "private" => "https://t.me/satyamosint"
+        "message" => "Failed to connect to upstream server",
+        "error" => $curlError
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     exit;
 }
 
-// JSON ko decode karte hain
+if ($httpCode < 200 || $httpCode >= 300) {
+    echo json_encode([
+        "success" => false,
+        "message" => "Upstream server returned HTTP error",
+        "http_code" => $httpCode
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+/*
+ * Pehle check karo response JSON hai ya nahi.
+ */
 $data = json_decode($response, true);
 
-if (!$data) {
-    echo json_encode([
-        "success" => false,
-        "message" => "Invalid response from server",
-        "developer" => "https://t.me/osintbysatyam",
-        "credit" => "satyamgupta",
-        "private" => "https://t.me/osintbysatyam"
-    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-    exit;
-}
+if (json_last_error() === JSON_ERROR_NONE) {
 
-// Screenshot "60013.jpg" ke hisaab se Cloudflare API 'result' key ke andar array bhej rahi hai. 
-// Us 'result' ko bahar nikalte hain taaki output clean rahe.
-$finalResult = isset($data['result']) ? $data['result'] : $data;
+    // Agar upstream JSON hai
+    $finalResult = isset($data['result'])
+        ? $data['result']
+        : $data;
+
+} else {
+
+    /*
+     * Agar upstream plain-text/mock response hai,
+     * to usko raw string ke roop mein return karo.
+     */
+    $finalResult = trim($response);
+}
 
 echo json_encode([
     "success" => true,
     "developer" => "Satyam Gupta",
-    "credit" => "https://t.me/osintbysatyam",
-    "private" => "https://t.me/+14rDlunTEzwwZGY1",
+    "credit" => "Satyam Gupta",
     "result" => $finalResult
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+
 ?>
