@@ -33,7 +33,6 @@ $number = preg_replace('/\D/', '', $number);
 
 /*
  * Working upstream URL
- * NOTE: yahan extra &key=... nahi lagaya gaya hai
  */
 $url = "https://exploitsindia.site/osintcallerbot/number.php?exploits=" . urlencode($number);
 
@@ -53,7 +52,6 @@ curl_setopt_array($ch, [
 
 $response = curl_exec($ch);
 $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-$contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
 $curlError = curl_error($ch);
 
 curl_close($ch);
@@ -92,9 +90,20 @@ if (json_last_error() === JSON_ERROR_NONE) {
 
     /*
      * Agar upstream plain-text/mock response hai,
-     * to usko raw string ke roop mein return karo.
+     * to usko array me break kar do taaki JSON me alag-alag lines (elements) ban jaye.
      */
-    $finalResult = trim($response);
+     
+    // 1. Agar response me <br> tags hain to unhe newline me badal do
+    $cleanResponse = preg_replace('/<br\s*\/?>/i', "\n", $response);
+    
+    // 2. Baki ke extra HTML tags hata do (optional but safe)
+    $cleanResponse = strip_tags($cleanResponse);
+    
+    // 3. Newline (\n ya \r\n) ke hisaab se array me split kar lo
+    $linesArray = preg_split('/\r\n|\r|\n/', trim($cleanResponse));
+    
+    // 4. Khali (empty) lines ko hata do aur array ko theek se index kar lo
+    $finalResult = array_values(array_filter(array_map('trim', $linesArray)));
 }
 
 echo json_encode([
