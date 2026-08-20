@@ -9,7 +9,7 @@ date_default_timezone_set('Asia/Kolkata');
 
 // Master Admin Secret Key for managing keys via admin.php or Admin REST API
 // Can also be set in Vercel Environment Variables as ADMIN_SECRET_KEY
-define('ADMIN_SECRET_KEY', getenv('ADMIN_SECRET_KEY') ?: 'satyam_admin_2026');
+define('ADMIN_SECRET_KEY', getenv('ADMIN_SECRET_KEY') ?: 'satyamop');
 
 // Upstash Redis Cloud Database (100% Automatic Key Persistence for Vercel)
 define('UPSTASH_REDIS_REST_URL', getenv('UPSTASH_REDIS_REST_URL') ?: 'https://handy-oarfish-116940.upstash.io');
