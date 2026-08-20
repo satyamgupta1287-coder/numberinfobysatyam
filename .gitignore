@@ -1,5 +1,0 @@
-# Ignore dynamic runtime data & client keys
-data/keys.json
-*.log
-.DS_Store
-Thumbs.db
