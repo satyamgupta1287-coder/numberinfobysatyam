@@ -18,7 +18,7 @@ function isAuthorized() {
 $action = $_REQUEST['action'] ?? '';
 $isJsonRequest = (isset($_REQUEST['format']) && $_REQUEST['format'] === 'json') 
               || (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false)
-              || !empty($action);
+              || (!empty($action) && $action !== 'login' && $action !== 'logout');
 
 // Process Login via Web Form
 if ($action === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -60,10 +60,12 @@ if (!empty($action) && $action !== 'login') {
         case 'create':
             $owner = $_POST['owner'] ?? $_GET['owner'] ?? '';
             $limit = isset($_REQUEST['limit']) ? (int)$_REQUEST['limit'] : -1;
-            $validityDays = !empty($_REQUEST['validity_days']) ? (int)$_REQUEST['validity_days'] : null;
+            $expiryType = $_REQUEST['expiry_type'] ?? 'lifetime';
+            $expiryValue = $_REQUEST['expiry_value'] ?? null;
             $customKey = $_REQUEST['custom_key'] ?? null;
 
-            $result = KeyManager::createKey($owner, $limit, $validityDays, $customKey);
+            $expiresAt = KeyManager::parseExpiry($expiryType, $expiryValue);
+            $result = KeyManager::createKey($owner, $limit, $expiresAt, $customKey);
             echo json_encode($result, JSON_PRETTY_PRINT);
             exit;
 
@@ -85,9 +87,18 @@ if (!empty($action) && $action !== 'login') {
             if (isset($_REQUEST['owner'])) $updates['owner'] = $_REQUEST['owner'];
             if (isset($_REQUEST['status'])) $updates['status'] = $_REQUEST['status'];
             if (isset($_REQUEST['limit'])) $updates['request_limit'] = (int)$_REQUEST['limit'];
-            if (isset($_REQUEST['expires_at'])) {
+            if (isset($_REQUEST['requests_used'])) $updates['requests_used'] = (int)$_REQUEST['requests_used'];
+            
+            if (isset($_REQUEST['expiry_type'])) {
+                $expiryType = $_REQUEST['expiry_type'];
+                $expiryValue = $_REQUEST['expiry_value'] ?? null;
+                if ($expiryType !== 'keep') {
+                    $updates['expires_at'] = KeyManager::parseExpiry($expiryType, $expiryValue);
+                }
+            } elseif (array_key_exists('expires_at', $_REQUEST)) {
                 $updates['expires_at'] = !empty($_REQUEST['expires_at']) ? $_REQUEST['expires_at'] : null;
             }
+
             $result = KeyManager::updateKey($key, $updates);
             echo json_encode($result, JSON_PRETTY_PRINT);
             exit;
@@ -128,18 +139,6 @@ foreach ($allKeys as $k) {
     <title>API Key Manager - <?php echo htmlspecialchars(API_DEVELOPER); ?></title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        brand: { 50: '#f0fdf4', 500: '#22c55e', 600: '#16a34a', 700: '#15803d' }
-                    }
-                }
-            }
-        }
-    </script>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased">
 
@@ -192,16 +191,20 @@ foreach ($allKeys as $k) {
                 </div>
                 <div>
                     <h1 class="text-2xl font-bold text-white">API Key Control Panel</h1>
-                    <p class="text-xs text-slate-400">Manage keys, request limits, and expiration periods</p>
+                    <p class="text-xs text-slate-400">Manage keys, custom limits, and flexible expiration (Minutes / Hours / Days / Date)</p>
                 </div>
             </div>
         </div>
-        <div class="flex items-center gap-3">
+        <div class="flex flex-wrap items-center gap-3">
+            <button onclick="openBackupModal()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3.5 py-2.5 rounded-xl transition text-sm flex items-center gap-2">
+                <i class="fa-solid fa-cloud-arrow-up text-xs"></i>
+                <span>Backup / Vercel Sync</span>
+            </button>
             <button onclick="openCreateModal()" class="bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-semibold px-4 py-2.5 rounded-xl transition duration-200 flex items-center gap-2 shadow-lg shadow-emerald-500/20 text-sm">
                 <i class="fa-solid fa-plus"></i>
                 <span>Generate API Key</span>
             </button>
-            <a href="admin.php?action=logout" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2.5 rounded-xl transition text-sm flex items-center gap-2">
+            <a href="admin.php?action=logout" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3.5 py-2.5 rounded-xl transition text-sm flex items-center gap-2">
                 <i class="fa-solid fa-right-from-bracket"></i>
                 <span>Logout</span>
             </a>
@@ -353,9 +356,16 @@ foreach ($allKeys as $k) {
                                         <?php echo date('d M Y, h:i A', strtotime($keyData['expires_at'])); ?>
                                     </div>
                                     <?php if (!$isExpired): 
-                                        $diffDays = ceil((strtotime($keyData['expires_at']) - time()) / 86400);
+                                        $diffSec = strtotime($keyData['expires_at']) - time();
+                                        if ($diffSec < 3600) {
+                                            $remainingText = ceil($diffSec / 60) . ' mins left';
+                                        } elseif ($diffSec < 86400) {
+                                            $remainingText = round($diffSec / 3600, 1) . ' hours left';
+                                        } else {
+                                            $remainingText = ceil($diffSec / 86400) . ' days left';
+                                        }
                                     ?>
-                                        <span class="text-[11px] text-slate-500">(<?php echo $diffDays; ?> days left)</span>
+                                        <span class="text-[11px] text-emerald-400 font-medium">(<?php echo $remainingText; ?>)</span>
                                     <?php endif; ?>
                                 <?php endif; ?>
                             </td>
@@ -370,6 +380,9 @@ foreach ($allKeys as $k) {
                                 <div class="inline-flex items-center gap-1.5">
                                     <button onclick="copyApiUrl('<?php echo htmlspecialchars($keyData['key']); ?>')" title="Copy Test API Request URL" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition text-xs">
                                         <i class="fa-solid fa-link"></i>
+                                    </button>
+                                    <button onclick='openEditModal(<?php echo json_encode($keyData); ?>)' title="Edit Key (Limit, Expiry, Status, Owner)" class="p-2 rounded-lg bg-slate-800 hover:bg-blue-600 text-slate-300 hover:text-white transition text-xs">
+                                        <i class="fa-solid fa-pen-to-square"></i>
                                     </button>
                                     <button onclick="resetKeyUsage('<?php echo htmlspecialchars($keyData['key']); ?>')" title="Reset Usage Counter" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition text-xs">
                                         <i class="fa-solid fa-rotate-left"></i>
@@ -393,7 +406,7 @@ foreach ($allKeys as $k) {
 
 <!-- Modal: Create New API Key -->
 <div id="createModal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm hidden items-center justify-center p-4">
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl relative">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
         <div class="flex items-center justify-between pb-4 border-b border-slate-800 mb-5">
             <h3 class="text-lg font-bold text-white flex items-center gap-2">
                 <i class="fa-solid fa-key text-emerald-400"></i>
@@ -407,42 +420,57 @@ foreach ($allKeys as $k) {
         <form id="createKeyForm" onsubmit="handleCreateKey(event)" class="space-y-4">
             <div>
                 <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">Owner / Client Name</label>
-                <input type="text" id="keyOwner" required placeholder="e.g. John Doe, VIP Bot, Client A"
+                <input type="text" id="keyOwner" required placeholder="e.g. John Doe, Bot Alpha, Client 1"
                        class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500">
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">Request Limit</label>
-                    <select id="keyLimit" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-emerald-500">
-                        <option value="-1">Unlimited (-1)</option>
-                        <option value="50">50 Requests</option>
-                        <option value="100">100 Requests</option>
-                        <option value="500">500 Requests</option>
-                        <option value="1000">1,000 Requests</option>
-                        <option value="5000">5,000 Requests</option>
-                        <option value="10000">10,000 Requests</option>
-                    </select>
+            <!-- Custom Request Limit -->
+            <div>
+                <div class="flex items-center justify-between mb-2">
+                    <label class="text-xs font-semibold text-slate-300 uppercase tracking-wider">Custom Request Limit</label>
+                    <span class="text-[11px] text-slate-400">(-1 = Unlimited)</span>
                 </div>
+                <input type="number" id="keyLimit" value="-1" required placeholder="e.g. 50, 100, 500, or -1"
+                       class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono">
+                <div class="flex flex-wrap gap-2 mt-2">
+                    <button type="button" onclick="setCreateLimit(-1)" class="px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">Unlimited (-1)</button>
+                    <button type="button" onclick="setCreateLimit(25)" class="px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">25</button>
+                    <button type="button" onclick="setCreateLimit(100)" class="px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">100</button>
+                    <button type="button" onclick="setCreateLimit(500)" class="px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">500</button>
+                    <button type="button" onclick="setCreateLimit(1000)" class="px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">1,000</button>
+                </div>
+            </div>
 
-                <div>
-                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">Validity Duration</label>
-                    <select id="keyValidity" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-emerald-500">
-                        <option value="">Lifetime (No Expiry)</option>
-                        <option value="1">1 Day</option>
-                        <option value="7">7 Days (1 Week)</option>
-                        <option value="15">15 Days</option>
-                        <option value="30">30 Days (1 Month)</option>
-                        <option value="90">90 Days (3 Months)</option>
-                        <option value="180">180 Days (6 Months)</option>
-                        <option value="365">365 Days (1 Year)</option>
+            <!-- Custom Validity / Expiry Duration -->
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">Validity & Expiration</label>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <select id="keyExpiryType" onchange="handleExpiryTypeChange('create')" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-emerald-500">
+                        <option value="lifetime">Lifetime (No Expiry)</option>
+                        <option value="minutes">Custom Minutes (e.g. 10 mins)</option>
+                        <option value="hours">Custom Hours (e.g. 2 hours)</option>
+                        <option value="days" selected>Custom Days (e.g. 1 day, 30 days)</option>
+                        <option value="datetime">Exact Date & Time</option>
                     </select>
+
+                    <div id="createExpiryValContainer">
+                        <input type="number" id="keyExpiryValue" value="30" placeholder="Number of days..."
+                               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono">
+                    </div>
+                </div>
+                <div class="flex flex-wrap gap-2 mt-2">
+                    <button type="button" onclick="setCreateExpiry('minutes', 10)" class="px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">10 Mins</button>
+                    <button type="button" onclick="setCreateExpiry('hours', 1)" class="px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">1 Hour</button>
+                    <button type="button" onclick="setCreateExpiry('days', 1)" class="px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">1 Day</button>
+                    <button type="button" onclick="setCreateExpiry('days', 7)" class="px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">7 Days</button>
+                    <button type="button" onclick="setCreateExpiry('days', 30)" class="px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">30 Days</button>
+                    <button type="button" onclick="setCreateExpiry('lifetime', '')" class="px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">Lifetime</button>
                 </div>
             </div>
 
             <div>
                 <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">Custom Key String (Optional)</label>
-                <input type="text" id="customKey" placeholder="Leave empty for auto-generated secure token"
+                <input type="text" id="customKey" placeholder="Leave empty for auto-generated token (satyam_...)"
                        class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono text-xs">
             </div>
 
@@ -458,6 +486,120 @@ foreach ($allKeys as $k) {
     </div>
 </div>
 
+<!-- Modal: Edit API Key -->
+<div id="editModal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between pb-4 border-b border-slate-800 mb-5">
+            <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                <i class="fa-solid fa-pen-to-square text-blue-400"></i>
+                <span>Edit API Key Details</span>
+            </h3>
+            <button onclick="closeEditModal()" class="text-slate-400 hover:text-white">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+        </div>
+
+        <form id="editKeyForm" onsubmit="handleSaveEdit(event)" class="space-y-4">
+            <input type="hidden" id="editKeyString">
+
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">API Key</label>
+                <input type="text" id="editKeyDisplay" readonly disabled
+                       class="w-full bg-slate-950/50 border border-slate-800/80 rounded-xl px-4 py-2.5 text-emerald-400 font-mono text-xs">
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">Owner / Client Name</label>
+                <input type="text" id="editOwner" required
+                       class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500">
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">Status</label>
+                    <select id="editStatus" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500">
+                        <option value="active">Active</option>
+                        <option value="suspended">Suspended</option>
+                        <option value="expired">Expired</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">Request Limit (-1 = ∞)</label>
+                    <input type="number" id="editLimit" required
+                           class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono">
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">Requests Used Counter</label>
+                <input type="number" id="editRequestsUsed" min="0" required
+                       class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono">
+            </div>
+
+            <!-- Edit Validity & Expiry -->
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">Expiration & Validity</label>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <select id="editExpiryType" onchange="handleExpiryTypeChange('edit')" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500">
+                        <option value="keep">Keep Current Expiry</option>
+                        <option value="lifetime">Lifetime (No Expiry)</option>
+                        <option value="minutes">+ Custom Minutes (e.g. 10m)</option>
+                        <option value="hours">+ Custom Hours (e.g. 2h)</option>
+                        <option value="days">+ Custom Days (e.g. 30d)</option>
+                        <option value="datetime">Set Exact Date & Time</option>
+                    </select>
+
+                    <div id="editExpiryValContainer" class="hidden">
+                        <input type="number" id="editExpiryValue" placeholder="Value..."
+                               class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono">
+                    </div>
+                </div>
+                <div id="editCurrentExpiryNote" class="text-[11px] text-slate-400 mt-2"></div>
+            </div>
+
+            <div class="pt-3 flex items-center justify-end gap-3 border-t border-slate-800">
+                <button type="button" onclick="closeEditModal()" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition">
+                    Cancel
+                </button>
+                <button type="submit" class="px-5 py-2.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-semibold text-sm transition shadow-lg shadow-blue-500/20">
+                    Save Changes
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: Backup & Vercel Sync -->
+<div id="backupModal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl p-6 shadow-2xl relative">
+        <div class="flex items-center justify-between pb-4 border-b border-slate-800 mb-4">
+            <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                <i class="fa-solid fa-cloud-arrow-up text-emerald-400"></i>
+                <span>Vercel Environment Sync / Backup</span>
+            </h3>
+            <button onclick="closeBackupModal()" class="text-slate-400 hover:text-white">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+        </div>
+
+        <p class="text-xs text-slate-300 mb-3">
+            Agar aap Vercel par keys ko 100% permanent banana chahte hain, to is JSON string ko copy karke Vercel Dashboard me **Settings ➔ Environment Variables** me <code>API_KEYS_JSON</code> naam se save kar sakte hain:
+        </p>
+
+        <textarea id="keysJsonExport" readonly rows="8" class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs font-mono text-emerald-400 focus:outline-none select-all"><?php echo htmlspecialchars(json_encode($allKeys, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)); ?></textarea>
+
+        <div class="pt-4 flex items-center justify-end gap-3">
+            <button onclick="copyBackupJson()" class="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-semibold text-xs transition">
+                <i class="fa-regular fa-copy mr-1"></i> Copy JSON
+            </button>
+            <button onclick="closeBackupModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition">
+                Close
+            </button>
+        </div>
+    </div>
+</div>
+
 <script>
 function openCreateModal() {
     document.getElementById('createModal').classList.remove('hidden');
@@ -469,17 +611,82 @@ function closeCreateModal() {
     document.getElementById('createModal').classList.remove('flex');
 }
 
+function openEditModal(keyData) {
+    document.getElementById('editKeyString').value = keyData.key;
+    document.getElementById('editKeyDisplay').value = keyData.key;
+    document.getElementById('editOwner').value = keyData.owner || '';
+    document.getElementById('editStatus').value = keyData.status || 'active';
+    document.getElementById('editLimit').value = (keyData.request_limit !== undefined) ? keyData.request_limit : -1;
+    document.getElementById('editRequestsUsed').value = keyData.requests_used || 0;
+    
+    document.getElementById('editExpiryType').value = 'keep';
+    handleExpiryTypeChange('edit');
+
+    const expText = keyData.expires_at ? `Current Expiry: ${keyData.expires_at}` : 'Current Expiry: Lifetime (Never)';
+    document.getElementById('editCurrentExpiryNote').textContent = expText;
+
+    document.getElementById('editModal').classList.remove('hidden');
+    document.getElementById('editModal').classList.add('flex');
+}
+
+function closeEditModal() {
+    document.getElementById('editModal').classList.add('hidden');
+    document.getElementById('editModal').classList.remove('flex');
+}
+
+function openBackupModal() {
+    document.getElementById('backupModal').classList.remove('hidden');
+    document.getElementById('backupModal').classList.add('flex');
+}
+
+function closeBackupModal() {
+    document.getElementById('backupModal').classList.add('hidden');
+    document.getElementById('backupModal').classList.remove('flex');
+}
+
+function setCreateLimit(val) {
+    document.getElementById('keyLimit').value = val;
+}
+
+function setCreateExpiry(type, val) {
+    document.getElementById('keyExpiryType').value = type;
+    handleExpiryTypeChange('create');
+    const input = document.getElementById('keyExpiryValue');
+    if (input) input.value = val;
+}
+
+function handleExpiryTypeChange(modal) {
+    const type = document.getElementById(modal === 'create' ? 'keyExpiryType' : 'editExpiryType').value;
+    const container = document.getElementById(modal === 'create' ? 'createExpiryValContainer' : 'editExpiryValContainer');
+    
+    if (type === 'lifetime' || type === 'keep') {
+        container.innerHTML = '';
+        container.classList.add('hidden');
+    } else if (type === 'datetime') {
+        container.classList.remove('hidden');
+        container.innerHTML = `<input type="datetime-local" id="${modal === 'create' ? 'keyExpiryValue' : 'editExpiryValue'}" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-emerald-500 font-mono text-xs">`;
+    } else {
+        container.classList.remove('hidden');
+        const placeholder = type === 'minutes' ? 'Enter minutes (e.g. 10)' : (type === 'hours' ? 'Enter hours (e.g. 2)' : 'Enter days (e.g. 30)');
+        const defVal = type === 'minutes' ? '10' : (type === 'hours' ? '1' : '30');
+        container.innerHTML = `<input type="number" id="${modal === 'create' ? 'keyExpiryValue' : 'editExpiryValue'}" value="${defVal}" placeholder="${placeholder}" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono">`;
+    }
+}
+
 async function handleCreateKey(e) {
     e.preventDefault();
     const owner = document.getElementById('keyOwner').value;
     const limit = document.getElementById('keyLimit').value;
-    const validity = document.getElementById('keyValidity').value;
+    const expiryType = document.getElementById('keyExpiryType').value;
+    const expiryValElem = document.getElementById('keyExpiryValue');
+    const expiryVal = expiryValElem ? expiryValElem.value : '';
     const customKey = document.getElementById('customKey').value;
 
     const formData = new FormData();
     formData.append('owner', owner);
     formData.append('limit', limit);
-    formData.append('validity_days', validity);
+    formData.append('expiry_type', expiryType);
+    if (expiryVal) formData.append('expiry_value', expiryVal);
     if (customKey.trim()) formData.append('custom_key', customKey.trim());
 
     const res = await fetch('admin.php?action=create', {
@@ -491,6 +698,38 @@ async function handleCreateKey(e) {
         window.location.reload();
     } else {
         alert(data.message || 'Failed to create key');
+    }
+}
+
+async function handleSaveEdit(e) {
+    e.preventDefault();
+    const key = document.getElementById('editKeyString').value;
+    const owner = document.getElementById('editOwner').value;
+    const status = document.getElementById('editStatus').value;
+    const limit = document.getElementById('editLimit').value;
+    const requestsUsed = document.getElementById('editRequestsUsed').value;
+    const expiryType = document.getElementById('editExpiryType').value;
+    const expiryValElem = document.getElementById('editExpiryValue');
+    const expiryVal = expiryValElem ? expiryValElem.value : '';
+
+    const formData = new FormData();
+    formData.append('key', key);
+    formData.append('owner', owner);
+    formData.append('status', status);
+    formData.append('limit', limit);
+    formData.append('requests_used', requestsUsed);
+    formData.append('expiry_type', expiryType);
+    if (expiryVal) formData.append('expiry_value', expiryVal);
+
+    const res = await fetch('admin.php?action=update', {
+        method: 'POST',
+        body: formData
+    });
+    const data = await res.json();
+    if (data.success) {
+        window.location.reload();
+    } else {
+        alert(data.message || 'Failed to update key');
     }
 }
 
@@ -536,6 +775,12 @@ function copyApiUrl(key) {
     const url = `${window.location.origin}${window.location.pathname.replace('admin.php', 'index.php')}?apikey=${encodeURIComponent(key)}&number=9570187989`;
     navigator.clipboard.writeText(url);
     alert(`Copied Test API URL to clipboard:\n${url}`);
+}
+
+function copyBackupJson() {
+    const txt = document.getElementById('keysJsonExport').value;
+    navigator.clipboard.writeText(txt);
+    alert('Copied Keys JSON to clipboard! You can paste it into Vercel Settings -> Environment Variables as API_KEYS_JSON.');
 }
 </script>
 

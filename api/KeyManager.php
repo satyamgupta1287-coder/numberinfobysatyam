@@ -13,10 +13,9 @@ class KeyManager {
      */
     private static function initStorage() {
         if (!file_exists(DATA_DIR)) {
-            mkdir(DATA_DIR, 0755, true);
-            // Protect data folder from web access
-            file_put_contents(DATA_DIR . '/.htaccess', "Deny from all\n");
-            file_put_contents(DATA_DIR . '/index.php', "<?php http_response_code(403); exit('Forbidden'); ?>");
+            @mkdir(DATA_DIR, 0777, true);
+            @file_put_contents(DATA_DIR . '/.htaccess', "Deny from all\n");
+            @file_put_contents(DATA_DIR . '/index.php', "<?php http_response_code(403); exit('Forbidden'); ?>");
         }
 
         if (!file_exists(KEYS_FILE)) {
@@ -32,28 +31,65 @@ class KeyManager {
                     'last_used_at' => null
                 ]
             ];
-            file_put_contents(KEYS_FILE, json_encode($defaultKeys, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            @file_put_contents(KEYS_FILE, json_encode($defaultKeys, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         }
     }
 
     /**
-     * Load all keys from JSON storage with shared read lock
+     * Load all keys from JSON storage and merge with static config keys
      */
     public static function getAllKeys() {
+        global $STATIC_API_KEYS;
         self::initStorage();
         
-        $fp = fopen(KEYS_FILE, 'r');
-        if (!$fp) {
-            return [];
+        $keys = [];
+        if (file_exists(KEYS_FILE)) {
+            $fp = @fopen(KEYS_FILE, 'r');
+            if ($fp) {
+                flock($fp, LOCK_SH);
+                $content = stream_get_contents($fp);
+                flock($fp, LOCK_UN);
+                fclose($fp);
+                $decoded = json_decode($content, true);
+                if (is_array($decoded)) {
+                    $keys = $decoded;
+                }
+            }
         }
 
-        flock($fp, LOCK_SH);
-        $content = stream_get_contents($fp);
-        flock($fp, LOCK_UN);
-        fclose($fp);
+        // Always ensure default legacy key is present
+        if (!isset($keys[DEFAULT_LEGACY_KEY])) {
+            $keys[DEFAULT_LEGACY_KEY] = [
+                'key' => DEFAULT_LEGACY_KEY,
+                'owner' => 'Satyam (Master Default)',
+                'status' => 'active',
+                'request_limit' => -1,
+                'requests_used' => 0,
+                'expires_at' => null,
+                'created_at' => date('Y-m-d H:i:s'),
+                'last_used_at' => null
+            ];
+        }
 
-        $keys = json_decode($content, true);
-        return is_array($keys) ? $keys : [];
+        // Merge any static keys from config
+        if (!empty($STATIC_API_KEYS) && is_array($STATIC_API_KEYS)) {
+            foreach ($STATIC_API_KEYS as $k => $v) {
+                if (!isset($keys[$k])) {
+                    $keys[$k] = array_merge([
+                        'key' => $k,
+                        'owner' => 'Config Key',
+                        'status' => 'active',
+                        'request_limit' => -1,
+                        'requests_used' => 0,
+                        'expires_at' => null,
+                        'created_at' => date('Y-m-d H:i:s'),
+                        'last_used_at' => null
+                    ], $v);
+                }
+            }
+        }
+
+        return $keys;
     }
 
     /**
@@ -62,13 +98,14 @@ class KeyManager {
     private static function saveAllKeys(array $keys) {
         self::initStorage();
         
-        $fp = fopen(KEYS_FILE, 'c+');
+        $fp = @fopen(KEYS_FILE, 'c+');
         if (!$fp) {
             return false;
         }
 
         if (flock($fp, LOCK_EX)) {
             ftruncate($fp, 0);
+            rewind($fp);
             fwrite($fp, json_encode($keys, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
             fflush($fp);
             flock($fp, LOCK_UN);
@@ -88,15 +125,41 @@ class KeyManager {
     }
 
     /**
+     * Helper to compute expiration datetime from custom inputs
+     * 
+     * @param string $type 'minutes', 'hours', 'days', 'datetime', 'lifetime'
+     * @param mixed $value Number of minutes/hours/days or datetime string
+     * @return string|null Formatted datetime string or null for lifetime
+     */
+    public static function parseExpiry($type, $value) {
+        if ($type === 'lifetime' || empty($type) || ($type !== 'datetime' && (!is_numeric($value) || $value <= 0))) {
+            return null;
+        }
+
+        if ($type === 'minutes') {
+            return date('Y-m-d H:i:s', strtotime("+{$value} minutes"));
+        } elseif ($type === 'hours') {
+            return date('Y-m-d H:i:s', strtotime("+{$value} hours"));
+        } elseif ($type === 'days') {
+            return date('Y-m-d H:i:s', strtotime("+{$value} days"));
+        } elseif ($type === 'datetime') {
+            $ts = strtotime($value);
+            return $ts ? date('Y-m-d H:i:s', $ts) : null;
+        }
+
+        return null;
+    }
+
+    /**
      * Create a new API Key
      * 
      * @param string $owner Name or ID of key owner
      * @param int $limit Total request limit (-1 for unlimited)
-     * @param int|null $validityDays Number of days key is valid (null for lifetime)
+     * @param string|null $expiresAt Formatted expiration datetime or null
      * @param string|null $customKey Optional custom key name
      * @return array Created key details
      */
-    public static function createKey($owner, $limit = -1, $validityDays = null, $customKey = null) {
+    public static function createKey($owner, $limit = -1, $expiresAt = null, $customKey = null) {
         $keys = self::getAllKeys();
         
         $keyString = !empty($customKey) ? trim($customKey) : self::generateKeyString();
@@ -108,18 +171,13 @@ class KeyManager {
             ];
         }
 
-        $expiresAt = null;
-        if (!empty($validityDays) && is_numeric($validityDays) && $validityDays > 0) {
-            $expiresAt = date('Y-m-d H:i:s', strtotime("+{$validityDays} days"));
-        }
-
         $keyData = [
             'key' => $keyString,
             'owner' => trim($owner) ?: 'User',
             'status' => 'active',
             'request_limit' => (int)$limit,
             'requests_used' => 0,
-            'expires_at' => $expiresAt,
+            'expires_at' => !empty($expiresAt) ? $expiresAt : null,
             'created_at' => date('Y-m-d H:i:s'),
             'last_used_at' => null
         ];
@@ -141,6 +199,7 @@ class KeyManager {
      * @return array [ 'valid' => bool, 'message' => string, 'key_info' => array|null, 'error_code' => string|null ]
      */
     public static function validateAndConsume($keyString) {
+        $keyString = trim($keyString);
         if (empty($keyString)) {
             return [
                 'valid' => false,
@@ -151,29 +210,9 @@ class KeyManager {
 
         self::initStorage();
 
-        $fp = fopen(KEYS_FILE, 'c+');
-        if (!$fp) {
-            return [
-                'valid' => false,
-                'error_code' => 'STORAGE_ERROR',
-                'message' => 'Unable to access key storage.'
-            ];
-        }
+        $keys = self::getAllKeys();
 
-        if (!flock($fp, LOCK_EX)) {
-            fclose($fp);
-            return [
-                'valid' => false,
-                'error_code' => 'LOCK_ERROR',
-                'message' => 'Key database is currently busy. Please retry.'
-            ];
-        }
-
-        $content = stream_get_contents($fp);
-        $keys = json_decode($content, true);
-        if (!is_array($keys) || !isset($keys[$keyString])) {
-            flock($fp, LOCK_UN);
-            fclose($fp);
+        if (!isset($keys[$keyString])) {
             return [
                 'valid' => false,
                 'error_code' => 'INVALID_API_KEY',
@@ -185,8 +224,6 @@ class KeyManager {
 
         // 1. Check if key is suspended
         if ($keyData['status'] === 'suspended') {
-            flock($fp, LOCK_UN);
-            fclose($fp);
             return [
                 'valid' => false,
                 'error_code' => 'KEY_SUSPENDED',
@@ -198,14 +235,8 @@ class KeyManager {
         if (!empty($keyData['expires_at'])) {
             $expiryTimestamp = strtotime($keyData['expires_at']);
             if (time() > $expiryTimestamp) {
-                // Auto mark status as expired
                 $keys[$keyString]['status'] = 'expired';
-                ftruncate($fp, 0);
-                rewind($fp);
-                fwrite($fp, json_encode($keys, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-                fflush($fp);
-                flock($fp, LOCK_UN);
-                fclose($fp);
+                self::saveAllKeys($keys);
 
                 return [
                     'valid' => false,
@@ -217,8 +248,6 @@ class KeyManager {
 
         // 3. Check if request limit is exceeded
         if ($keyData['request_limit'] > -1 && $keyData['requests_used'] >= $keyData['request_limit']) {
-            flock($fp, LOCK_UN);
-            fclose($fp);
             return [
                 'valid' => false,
                 'error_code' => 'LIMIT_EXCEEDED',
@@ -229,14 +258,7 @@ class KeyManager {
         // 4. Increment usage counter and update last used time
         $keys[$keyString]['requests_used']++;
         $keys[$keyString]['last_used_at'] = date('Y-m-d H:i:s');
-
-        // Save updated data
-        ftruncate($fp, 0);
-        rewind($fp);
-        fwrite($fp, json_encode($keys, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        fflush($fp);
-        flock($fp, LOCK_UN);
-        fclose($fp);
+        self::saveAllKeys($keys);
 
         $updatedKey = $keys[$keyString];
         $remaining = ($updatedKey['request_limit'] === -1) ? 'Unlimited' : max(0, $updatedKey['request_limit'] - $updatedKey['requests_used']);
@@ -254,7 +276,7 @@ class KeyManager {
     }
 
     /**
-     * Update an existing API key
+     * Update an existing API key (Owner, Limit, Status, Expiry, Usage)
      */
     public static function updateKey($keyString, array $updates) {
         $keys = self::getAllKeys();
@@ -271,8 +293,11 @@ class KeyManager {
         if (isset($updates['request_limit'])) {
             $keys[$keyString]['request_limit'] = (int)$updates['request_limit'];
         }
-        if (isset($updates['expires_at'])) {
-            $keys[$keyString]['expires_at'] = $updates['expires_at'];
+        if (array_key_exists('expires_at', $updates)) {
+            $keys[$keyString]['expires_at'] = !empty($updates['expires_at']) ? $updates['expires_at'] : null;
+        }
+        if (isset($updates['requests_used'])) {
+            $keys[$keyString]['requests_used'] = max(0, (int)$updates['requests_used']);
         }
 
         self::saveAllKeys($keys);

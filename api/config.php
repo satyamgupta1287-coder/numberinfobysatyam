@@ -26,8 +26,21 @@ define('KEYS_FILE', DATA_DIR . '/keys.json');
 define('API_DEVELOPER', 'Satyam Gupta');
 define('API_CREDIT', 'Satyam Gupta');
 
-// Default initial key configuration (created automatically if keys.json does not exist)
+// Default initial key configuration (always active and unlimited)
 define('DEFAULT_LEGACY_KEY', 'satyamm');
+
+// Static / Permanent API Keys (Can be defined here or in Vercel Environment Variables)
+// Example format: ['my_key' => ['owner' => 'Bot 1', 'request_limit' => 1000, 'expires_at' => null, 'status' => 'active']]
+$STATIC_API_KEYS = [];
+
+// Load keys from Vercel Environment Variable if provided (e.g., API_KEYS_JSON)
+$envKeys = getenv('API_KEYS_JSON');
+if (!empty($envKeys)) {
+    $parsedEnv = json_decode($envKeys, true);
+    if (is_array($parsedEnv)) {
+        $STATIC_API_KEYS = array_merge($STATIC_API_KEYS, $parsedEnv);
+    }
+}
 
 // Upstream API URL
 define('UPSTREAM_API_URL', 'https://exploitsindia.site/osintcallerbot/number.php?exploits=');
