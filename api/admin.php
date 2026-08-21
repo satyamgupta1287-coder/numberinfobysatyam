@@ -109,6 +109,17 @@ if (!empty($action) && $action !== 'login') {
             echo json_encode($result, JSON_PRETTY_PRINT);
             exit;
 
+        case 'logs':
+            $limit = isset($_REQUEST['limit']) ? (int)$_REQUEST['limit'] : 100;
+            $logs = KeyManager::getLogs($limit);
+            echo json_encode(['success' => true, 'logs' => $logs], JSON_PRETTY_PRINT);
+            exit;
+
+        case 'clear_logs':
+            $result = KeyManager::clearLogs();
+            echo json_encode($result, JSON_PRETTY_PRINT);
+            exit;
+
         default:
             echo json_encode(['success' => false, 'message' => 'Unknown action.']);
             exit;
@@ -118,6 +129,7 @@ if (!empty($action) && $action !== 'login') {
 // Check Web UI Authorization
 $loggedIn = isAuthorized();
 $allKeys = $loggedIn ? KeyManager::getAllKeys() : [];
+$allLogs = $loggedIn ? KeyManager::getLogs(200) : [];
 
 // Calculate Dashboard Stats
 $totalKeys = count($allKeys);
@@ -190,15 +202,15 @@ foreach ($allKeys as $k) {
                     <i class="fa-solid fa-key"></i>
                 </div>
                 <div>
-                    <h1 class="text-2xl font-bold text-white">API Key Control Panel</h1>
-                    <p class="text-xs text-slate-400">Manage keys, custom limits, and flexible expiration (Minutes / Hours / Days / Date)</p>
+                    <h1 class="text-2xl font-bold text-white">API Key & Live Activity Panel</h1>
+                    <p class="text-xs text-slate-400">Manage keys, custom limits, expiry, and track live phone number searches</p>
                 </div>
             </div>
         </div>
         <div class="flex flex-wrap items-center gap-3">
             <button onclick="openBackupModal()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3.5 py-2.5 rounded-xl transition text-sm flex items-center gap-2">
                 <i class="fa-solid fa-cloud-arrow-up text-xs"></i>
-                <span>Backup / Vercel Sync</span>
+                <span>Cloud Sync / Backup</span>
             </button>
             <button onclick="openCreateModal()" class="bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-semibold px-4 py-2.5 rounded-xl transition duration-200 flex items-center gap-2 shadow-lg shadow-emerald-500/20 text-sm">
                 <i class="fa-solid fa-plus"></i>
@@ -252,8 +264,8 @@ foreach ($allKeys as $k) {
         <div class="bg-slate-900 border border-slate-800/80 rounded-2xl p-5">
             <div class="flex items-center justify-between">
                 <div>
-                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Expired Keys</p>
-                    <h3 class="text-3xl font-bold text-amber-400 mt-1"><?php echo $expiredKeys; ?></h3>
+                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Live Log Count</p>
+                    <h3 class="text-3xl font-bold text-amber-400 mt-1"><?php echo count($allLogs); ?></h3>
                 </div>
                 <div class="w-12 h-12 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center border border-amber-500/20">
                     <i class="fa-solid fa-clock-rotate-left text-xl"></i>
@@ -263,7 +275,7 @@ foreach ($allKeys as $k) {
     </div>
 
     <!-- API Keys Table Card -->
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl mb-10">
         <div class="px-6 py-4 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <h2 class="text-lg font-semibold text-white flex items-center gap-2">
                 <i class="fa-solid fa-list text-slate-400 text-sm"></i>
@@ -402,6 +414,125 @@ foreach ($allKeys as $k) {
             </table>
         </div>
     </div>
+
+    <!-- 📊 LIVE SEARCH & NUMBER ACTIVITY LOGS TABLE -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+        <div class="px-6 py-4 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center border border-amber-500/20 text-sm">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                </div>
+                <div>
+                    <h2 class="text-lg font-semibold text-white">Live Searched Numbers & Request Logs</h2>
+                    <p class="text-xs text-slate-400">See real-time phone numbers queried by users and their API keys</p>
+                </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-3">
+                <!-- Search Box for Logs -->
+                <div class="relative">
+                    <input type="text" id="logSearchInput" onkeyup="filterLogsTable()" placeholder="Search phone number or owner..."
+                           class="bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-1.5 pl-8 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 w-56">
+                    <i class="fa-solid fa-search absolute left-2.5 top-2.5 text-slate-500 text-xs"></i>
+                </div>
+
+                <button onclick="clearSearchLogs()" class="bg-slate-800 hover:bg-red-500/20 text-slate-300 hover:text-red-400 px-3 py-1.5 rounded-xl transition text-xs flex items-center gap-1.5">
+                    <i class="fa-solid fa-trash-can"></i>
+                    <span>Clear Logs</span>
+                </button>
+
+                <button onclick="window.location.reload()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-xl transition text-xs flex items-center gap-1.5">
+                    <i class="fa-solid fa-arrows-rotate"></i>
+                    <span>Refresh</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="overflow-x-auto max-h-[500px] overflow-y-auto">
+            <table id="logsTable" class="w-full text-left text-sm text-slate-300">
+                <thead class="bg-slate-950/80 sticky top-0 text-xs uppercase font-semibold text-slate-400 border-b border-slate-800">
+                    <tr>
+                        <th class="px-6 py-3.5">Time (IST)</th>
+                        <th class="px-6 py-3.5">Searched Phone Number</th>
+                        <th class="px-6 py-3.5">API Key & Owner</th>
+                        <th class="px-6 py-3.5">Client IP</th>
+                        <th class="px-6 py-3.5 text-right">Status</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800/60 font-mono text-xs">
+                    <?php if (empty($allLogs)): ?>
+                        <tr id="noLogsRow">
+                            <td colspan="5" class="px-6 py-8 text-center text-slate-500 font-sans">
+                                <i class="fa-solid fa-inbox text-2xl mb-2 block text-slate-600"></i>
+                                No search requests recorded yet. When users call the API with a phone number, it will show up here automatically!
+                            </td>
+                        </tr>
+                    <?php else: ?>
+                        <?php foreach ($allLogs as $log): 
+                            $isSuccess = ($log['status'] === 'success');
+                            $logTime = strtotime($log['time']);
+                            $timeAgoSec = time() - $logTime;
+                            if ($timeAgoSec < 60) {
+                                $timeAgo = $timeAgoSec . 's ago';
+                            } elseif ($timeAgoSec < 3600) {
+                                $timeAgo = floor($timeAgoSec / 60) . 'm ago';
+                            } elseif ($timeAgoSec < 86400) {
+                                $timeAgo = floor($timeAgoSec / 3600) . 'h ago';
+                            } else {
+                                $timeAgo = floor($timeAgoSec / 86400) . 'd ago';
+                            }
+                        ?>
+                        <tr class="log-row hover:bg-slate-800/30 transition">
+                            <!-- Time -->
+                            <td class="px-6 py-3.5 text-slate-400 whitespace-nowrap">
+                                <div><?php echo date('d M Y, h:i:s A', $logTime); ?></div>
+                                <span class="text-[10px] text-emerald-400 font-sans font-medium"><?php echo $timeAgo; ?></span>
+                            </td>
+
+                            <!-- Searched Number -->
+                            <td class="px-6 py-3.5 whitespace-nowrap">
+                                <div class="inline-flex items-center gap-2">
+                                    <span class="text-sm font-bold text-amber-400 bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
+                                        📱 <?php echo htmlspecialchars($log['number']); ?>
+                                    </span>
+                                    <button onclick="copyToClipboard('<?php echo htmlspecialchars($log['number']); ?>')" title="Copy Phone Number" class="text-slate-500 hover:text-slate-300 text-xs">
+                                        <i class="fa-regular fa-copy"></i>
+                                    </button>
+                                </div>
+                            </td>
+
+                            <!-- API Key & Owner -->
+                            <td class="px-6 py-3.5 whitespace-nowrap font-sans">
+                                <div class="font-semibold text-white"><?php echo htmlspecialchars($log['owner'] ?? 'User'); ?></div>
+                                <code class="font-mono text-[11px] text-slate-400 bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">
+                                    <?php echo htmlspecialchars($log['key']); ?>
+                                </code>
+                            </td>
+
+                            <!-- Client IP -->
+                            <td class="px-6 py-3.5 whitespace-nowrap text-slate-400">
+                                <?php echo htmlspecialchars($log['ip']); ?>
+                            </td>
+
+                            <!-- Status Badge -->
+                            <td class="px-6 py-3.5 text-right whitespace-nowrap font-sans">
+                                <?php if ($isSuccess): ?>
+                                    <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                        <i class="fa-solid fa-check text-[10px]"></i> Success (200)
+                                    </span>
+                                <?php else: ?>
+                                    <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-red-500/10 text-red-400 border border-red-500/20">
+                                        <i class="fa-solid fa-triangle-exclamation text-[10px]"></i> <?php echo htmlspecialchars($log['status']); ?>
+                                    </span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
 </div>
 
 <!-- Modal: Create New API Key -->
@@ -527,7 +658,7 @@ foreach ($allKeys as $k) {
                 <div>
                     <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">Request Limit (-1 = ∞)</label>
                     <input type="number" id="editLimit" required
-                           class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono">
+                       class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono">
                 </div>
             </div>
 
@@ -570,24 +701,29 @@ foreach ($allKeys as $k) {
     </div>
 </div>
 
-<!-- Modal: Backup & Vercel Sync -->
+<!-- Modal: Backup & Cloud Sync -->
 <div id="backupModal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm hidden items-center justify-center p-4">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl p-6 shadow-2xl relative">
         <div class="flex items-center justify-between pb-4 border-b border-slate-800 mb-4">
             <h3 class="text-lg font-bold text-white flex items-center gap-2">
                 <i class="fa-solid fa-cloud-arrow-up text-emerald-400"></i>
-                <span>Vercel Environment Sync / Backup</span>
+                <span>Upstash Cloud Sync Status & Backup</span>
             </h3>
             <button onclick="closeBackupModal()" class="text-slate-400 hover:text-white">
                 <i class="fa-solid fa-xmark text-lg"></i>
             </button>
         </div>
 
-        <p class="text-xs text-slate-300 mb-3">
-            Agar aap Vercel par keys ko 100% permanent banana chahte hain, to is JSON string ko copy karke Vercel Dashboard me **Settings ➔ Environment Variables** me <code>API_KEYS_JSON</code> naam se save kar sakte hain:
+        <div class="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs flex items-center gap-2">
+            <i class="fa-solid fa-circle-check text-sm"></i>
+            <span>Upstash Cloud Redis is active! Every API key and search log is automatically saved in real-time.</span>
+        </div>
+
+        <p class="text-xs text-slate-300 mb-2">
+            Keys JSON Export (Offline Backup):
         </p>
 
-        <textarea id="keysJsonExport" readonly rows="8" class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs font-mono text-emerald-400 focus:outline-none select-all"><?php echo htmlspecialchars(json_encode($allKeys, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)); ?></textarea>
+        <textarea id="keysJsonExport" readonly rows="7" class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs font-mono text-emerald-400 focus:outline-none select-all"><?php echo htmlspecialchars(json_encode($allKeys, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)); ?></textarea>
 
         <div class="pt-4 flex items-center justify-end gap-3">
             <button onclick="copyBackupJson()" class="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-semibold text-xs transition">
@@ -766,6 +902,33 @@ async function deleteApiKey(key) {
     }
 }
 
+async function clearSearchLogs() {
+    if (!confirm('Are you sure you want to clear all searched numbers and request logs?')) return;
+    const res = await fetch('admin.php?action=clear_logs');
+    const data = await res.json();
+    if (data.success) {
+        window.location.reload();
+    } else {
+        alert(data.message || 'Failed to clear logs');
+    }
+}
+
+function filterLogsTable() {
+    const input = document.getElementById('logSearchInput').value.toLowerCase();
+    const rows = document.querySelectorAll('.log-row');
+    let visibleCount = 0;
+
+    rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        if (text.includes(input)) {
+            row.style.display = '';
+            visibleCount++;
+        } else {
+            row.style.display = 'none';
+        }
+    });
+}
+
 function copyToClipboard(text) {
     navigator.clipboard.writeText(text);
     alert(`Copied to clipboard:\n${text}`);
@@ -780,7 +943,7 @@ function copyApiUrl(key) {
 function copyBackupJson() {
     const txt = document.getElementById('keysJsonExport').value;
     navigator.clipboard.writeText(txt);
-    alert('Copied Keys JSON to clipboard! You can paste it into Vercel Settings -> Environment Variables as API_KEYS_JSON.');
+    alert('Copied Keys JSON to clipboard!');
 }
 </script>
 

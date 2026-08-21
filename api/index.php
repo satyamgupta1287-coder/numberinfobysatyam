@@ -21,6 +21,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
+// Extract Client IP
+$clientIp = $_SERVER['HTTP_CF_CONNECTING_IP'] 
+         ?? $_SERVER['HTTP_X_REAL_IP'] 
+         ?? explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '')[0] 
+         ?? $_SERVER['REMOTE_ADDR'] 
+         ?? 'Unknown';
+$clientIp = trim($clientIp);
+
 // 1. Extract API Key (supports GET parameter, POST parameter, or HTTP Header)
 $apikey = $_GET['apikey'] ?? $_POST['apikey'] ?? $_SERVER['HTTP_X_API_KEY'] ?? '';
 
@@ -96,6 +104,7 @@ $curlError = curl_error($ch);
 curl_close($ch);
 
 if ($response === false) {
+    KeyManager::logRequest($apikey, $validation['key_info']['owner'], $cleanNumber, 'failed_upstream', $clientIp, 502);
     http_response_code(502);
     echo json_encode([
         "success" => false,
@@ -108,6 +117,7 @@ if ($response === false) {
 }
 
 if ($httpCode < 200 || $httpCode >= 300) {
+    KeyManager::logRequest($apikey, $validation['key_info']['owner'], $cleanNumber, 'upstream_http_error', $clientIp, $httpCode);
     http_response_code(502);
     echo json_encode([
         "success" => false,
@@ -153,6 +163,9 @@ $filteredArray = array_filter($linesArray, function($line) {
 });
 
 $finalResult = array_values($filteredArray);
+
+// Log successful request
+KeyManager::logRequest($apikey, $validation['key_info']['owner'], $cleanNumber, 'success', $clientIp, 200);
 
 // 6. Return Structured Success Response
 echo json_encode([

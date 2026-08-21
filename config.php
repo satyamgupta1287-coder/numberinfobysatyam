@@ -11,7 +11,7 @@ date_default_timezone_set('Asia/Kolkata');
 // Can also be set in Vercel Environment Variables as ADMIN_SECRET_KEY
 define('ADMIN_SECRET_KEY', getenv('ADMIN_SECRET_KEY') ?: 'satyam_admin_2026');
 
-// Upstash Redis Cloud Database (100% Automatic Key Persistence for Vercel)
+// Upstash Redis Cloud Database (100% Automatic Key Persistence & Logging for Vercel)
 define('UPSTASH_REDIS_REST_URL', getenv('UPSTASH_REDIS_REST_URL') ?: 'https://handy-oarfish-116940.upstash.io');
 define('UPSTASH_REDIS_REST_TOKEN', getenv('UPSTASH_REDIS_REST_TOKEN') ?: 'gQAAAAAAAcjMAAIgcDIzNTE4NDcyYWJkNTI0ZmJjOTBlZjE3YTlmMTI4ZTYxNw');
 
@@ -24,6 +24,8 @@ if (getenv('VERCEL') || !@is_writable(__DIR__)) {
 }
 
 define('KEYS_FILE', DATA_DIR . '/keys.json');
+define('LOGS_FILE', DATA_DIR . '/logs.json');
+define('MAX_LOGS_COUNT', 300); // Keep last 300 search logs
 
 // Developer & Branding Info
 define('API_DEVELOPER', 'Satyam Gupta');

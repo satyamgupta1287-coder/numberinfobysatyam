@@ -1,6 +1,6 @@
 <?php
 /**
- * KeyManager - High-performance API Key Manager with Cloud Database (Upstash Redis) & Local Fallback
+ * KeyManager - High-performance API Key Manager with Cloud Database (Upstash Redis), Quotas, and Live Activity Logging
  * Developer: Satyam Gupta
  */
 
@@ -17,12 +17,12 @@ class KeyManager {
     }
 
     /**
-     * Fetch all keys from Upstash Cloud Redis
+     * Fetch from Upstash Cloud Redis by Key
      */
-    private static function fetchFromCloud() {
+    private static function fetchFromCloud($key = 'numberinfo_keys') {
         if (!self::isCloudEnabled()) return null;
         
-        $url = rtrim(UPSTASH_REDIS_REST_URL, '/') . '/get/numberinfo_keys';
+        $url = rtrim(UPSTASH_REDIS_REST_URL, '/') . '/get/' . urlencode($key);
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
@@ -39,20 +39,20 @@ class KeyManager {
         if (!$response) return null;
         $data = json_decode($response, true);
         if (isset($data['result']) && !empty($data['result'])) {
-            $keys = json_decode($data['result'], true);
-            return is_array($keys) ? $keys : null;
+            $decoded = json_decode($data['result'], true);
+            return is_array($decoded) ? $decoded : null;
         }
         return null;
     }
 
     /**
-     * Save all keys to Upstash Cloud Redis
+     * Save to Upstash Cloud Redis by Key
      */
-    private static function sendToCloud(array $keys) {
+    private static function sendToCloud($key, $data) {
         if (!self::isCloudEnabled()) return false;
 
-        $url = rtrim(UPSTASH_REDIS_REST_URL, '/') . '/set/numberinfo_keys';
-        $jsonPayload = json_encode($keys, JSON_UNESCAPED_SLASHES);
+        $url = rtrim(UPSTASH_REDIS_REST_URL, '/') . '/set/' . urlencode($key);
+        $jsonPayload = is_string($data) ? $data : json_encode($data, JSON_UNESCAPED_SLASHES);
         
         $ch = curl_init($url);
         curl_setopt_array($ch, [
@@ -94,7 +94,7 @@ class KeyManager {
 
         // 1. Try fetching from Cloud first
         if (self::isCloudEnabled()) {
-            $keys = self::fetchFromCloud();
+            $keys = self::fetchFromCloud('numberinfo_keys');
         }
 
         // 2. If Cloud was empty or disabled, check local storage
@@ -172,7 +172,7 @@ class KeyManager {
         
         // 1. Save to Cloud if enabled
         if (self::isCloudEnabled()) {
-            self::sendToCloud($keys);
+            self::sendToCloud('numberinfo_keys', $keys);
         }
 
         // 2. Save to local file cache
@@ -326,6 +326,7 @@ class KeyManager {
         return [
             'valid' => true,
             'key_info' => [
+                'key' => $updatedKey['key'],
                 'owner' => $updatedKey['owner'],
                 'requests_used' => $updatedKey['requests_used'],
                 'request_limit' => ($updatedKey['request_limit'] === -1) ? 'Unlimited' : $updatedKey['request_limit'],
@@ -406,5 +407,111 @@ class KeyManager {
         self::saveAllKeys($keys);
 
         return ['success' => true, 'message' => "Key status changed to {$newStatus}.", 'status' => $newStatus];
+    }
+
+    // ==========================================
+    // 📊 LIVE SEARCH & NUMBER REQUEST LOGGING
+    // ==========================================
+
+    /**
+     * Log an API request with the searched phone number, owner, IP, and timestamp
+     */
+    public static function logRequest($keyString, $owner, $searchedNumber, $status = 'success', $clientIp = '', $httpCode = 200) {
+        self::initStorage();
+
+        $logEntry = [
+            'id' => uniqid('log_'),
+            'time' => date('Y-m-d H:i:s'),
+            'number' => $searchedNumber,
+            'key' => $keyString,
+            'owner' => $owner ?: 'Unknown',
+            'ip' => $clientIp ?: 'Unknown',
+            'status' => $status,
+            'http_code' => $httpCode
+        ];
+
+        $logs = self::getLogs(MAX_LOGS_COUNT);
+        array_unshift($logs, $logEntry); // Add newest on top
+
+        // Trim logs to MAX_LOGS_COUNT
+        if (count($logs) > MAX_LOGS_COUNT) {
+            $logs = array_slice($logs, 0, MAX_LOGS_COUNT);
+        }
+
+        // Save to Cloud
+        if (self::isCloudEnabled()) {
+            self::sendToCloud('numberinfo_logs', $logs);
+        }
+
+        // Save to local cache
+        $fp = @fopen(LOGS_FILE, 'c+');
+        if ($fp) {
+            if (flock($fp, LOCK_EX)) {
+                ftruncate($fp, 0);
+                rewind($fp);
+                fwrite($fp, json_encode($logs, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+                fflush($fp);
+                flock($fp, LOCK_UN);
+            }
+            fclose($fp);
+        }
+
+        return true;
+    }
+
+    /**
+     * Get all search logs
+     */
+    public static function getLogs($limit = 100) {
+        self::initStorage();
+        $logs = null;
+
+        if (self::isCloudEnabled()) {
+            $logs = self::fetchFromCloud('numberinfo_logs');
+        }
+
+        if (!is_array($logs) && file_exists(LOGS_FILE)) {
+            $fp = @fopen(LOGS_FILE, 'r');
+            if ($fp) {
+                flock($fp, LOCK_SH);
+                $content = stream_get_contents($fp);
+                flock($fp, LOCK_UN);
+                fclose($fp);
+                $decoded = json_decode($content, true);
+                if (is_array($decoded)) {
+                    $logs = $decoded;
+                }
+            }
+        }
+
+        if (!is_array($logs)) {
+            $logs = [];
+        }
+
+        return array_slice($logs, 0, $limit);
+    }
+
+    /**
+     * Clear all search logs
+     */
+    public static function clearLogs() {
+        self::initStorage();
+        if (self::isCloudEnabled()) {
+            self::sendToCloud('numberinfo_logs', []);
+        }
+
+        $fp = @fopen(LOGS_FILE, 'c+');
+        if ($fp) {
+            if (flock($fp, LOCK_EX)) {
+                ftruncate($fp, 0);
+                rewind($fp);
+                fwrite($fp, json_encode([], JSON_PRETTY_PRINT));
+                fflush($fp);
+                flock($fp, LOCK_UN);
+            }
+            fclose($fp);
+        }
+
+        return ['success' => true, 'message' => 'Search activity logs cleared successfully.'];
     }
 }
